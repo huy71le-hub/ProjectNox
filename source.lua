@@ -1238,8 +1238,14 @@ connect(UIS.InputBegan, function(input, processed)
         return
     end
 
-    -- All other actions respect input handled by the game or UI.
-    if processed then return end
+    -- Do not block Nox keybinds just because another game script
+    -- already handled the same keyboard input. Roblox can set
+    -- processed=true for ability keys such as E or G.
+    -- Focused text boxes and key-rebinding are handled above.
+    -- The game can still receive its own keybind normally.
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then
+        return
+    end
 
     if input.KeyCode == binds.Menu then
         local opening = not menu.Visible
@@ -1626,19 +1632,3 @@ task.spawn(function()
     local disappear = TweenService:Create(
         notice,
         TweenInfo.new(
-            0.45,
-            Enum.EasingStyle.Quint,
-            Enum.EasingDirection.In
-        ),
-        {
-            Position = UDim2.new(0.5, 0, 0, -70)
-        }
-    )
-
-    disappear:Play()
-    disappear.Completed:Wait()
-
-    if notice.Parent then
-        notice:Destroy()
-    end
-end)
