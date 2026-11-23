@@ -18,8 +18,6 @@
     - One target at a time
     - Player respawn support
     - Animated startup notification
-    - Optional ability aim-assist circle (Z/X/C/V/F)
-    - Game-owned ability aim hook: NoxGetAbilityAimPosition
 
     Roblox Studio:
     StarterPlayer > StarterPlayerScripts
@@ -52,9 +50,6 @@ local AIM_HEIGHT = 1.5
 local DOT_DISTANCE = 150
 local SCROLL_STEP = 18
 local NOTICE_SECONDS = 5
-local AIM_ASSIST_MIN = 30
-local AIM_ASSIST_MAX = 250
-local AIM_ASSIST_STEP = 10
 
 local MAX_PITCH = math.rad(89.5)
 
@@ -75,8 +70,6 @@ local playerConnections = {}
 
 local gui = nil
 local running = true
-local abilityHook = nil
-local abilitySignal = nil
 
 local function connect(signal, callback)
     local connection = signal:Connect(callback)
@@ -91,7 +84,6 @@ local function cleanup()
     pcall(function()
         RunService:UnbindFromRenderStep("ProjectNoxAim")
         RunService:UnbindFromRenderStep("ProjectNoxFreeMouse")
-        RunService:UnbindFromRenderStep("ProjectNoxAbilityCircle")
     end)
 
     for _, connection in ipairs(connections) do
@@ -114,13 +106,6 @@ local function cleanup()
 
     if gui then
         gui:Destroy()
-    end
-
-    if abilityHook and abilityHook.Parent then
-        abilityHook:Destroy()
-    end
-    if abilitySignal and abilitySignal.Parent then
-        abilitySignal:Destroy()
     end
 end
 
@@ -145,12 +130,6 @@ local holdingTab = false
 local currentSection = "Players"
 local savedCamera = nil
 local lastYaw = nil
-local assistEnabled = false
-local assistRadius = 100
-local assistTarget = nil
-local assistLastUpdate = 0
-local npcAssistCache = {}
-local npcAssistRefresh = 0
 
 -- ========================================
 -- GUI HELPERS
@@ -193,7 +172,7 @@ gui.Parent = playerGui
 
 local menu = Instance.new("Frame")
 menu.Name = "MainMenu"
-menu.Size = UDim2.fromOffset(340, 527)
+menu.Size = UDim2.fromOffset(340, 406)
 menu.AnchorPoint = Vector2.new(0.5, 0.5)
 menu.Position = UDim2.fromScale(0.5, 0.5)
 menu.BackgroundColor3 = DARK
@@ -312,102 +291,14 @@ local espButton = createButton(
 )
 
 local footer = Instance.new("TextLabel")
-footer.Position = UDim2.fromOffset(9, 503)
+footer.Position = UDim2.fromOffset(9, 379)
 footer.Size = UDim2.new(1, -18, 0, 18)
 footer.BackgroundTransparency = 1
-footer.Text = "G: NEXT | Z/X/C/V/F: ABILITIES | TAB: MOUSE"
+footer.Text = "G: NEXT ENEMY | HOLD TAB: FREE MOUSE"
 footer.TextColor3 = Color3.fromRGB(175, 180, 205)
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
 footer.Parent = menu
-
--- ========================================
--- OPTIONAL ABILITY AIM UI
--- ========================================
-
-local assistToggle = createButton(
-    menu, "ABILITY AIM ASSIST: OFF",
-    UDim2.fromOffset(9, 382),
-    UDim2.new(1, -18, 0, 35)
-)
-
-local assistMinus = createButton(
-    menu, "-", UDim2.fromOffset(9, 425),
-    UDim2.fromOffset(55, 32)
-)
-
-local assistSize = createButton(
-    menu, "RADIUS: 100px", UDim2.fromOffset(70, 425),
-    UDim2.new(1, -140, 0, 32)
-)
-assistSize.AutoButtonColor = false
-
-local assistPlus = createButton(
-    menu, "+", UDim2.new(1, -64, 0, 425),
-    UDim2.fromOffset(55, 32)
-)
-
-local assistHelp = Instance.new("TextLabel")
-assistHelp.Position = UDim2.fromOffset(9, 463)
-assistHelp.Size = UDim2.new(1, -18, 0, 30)
-assistHelp.BackgroundTransparency = 1
-assistHelp.Text = "Aim training: lower the radius as you improve"
-assistHelp.TextColor3 = Color3.fromRGB(185, 190, 212)
-assistHelp.TextSize = 11
-assistHelp.Font = Enum.Font.Gotham
-assistHelp.Parent = menu
-
--- Circle is in the existing ProjectNox ScreenGui.
--- IgnoreGuiInset=true: viewport positions align with mouse locations.
-local assistCircle = Instance.new("Frame")
-assistCircle.Name = "AbilityAimRadius"
-assistCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-assistCircle.BackgroundColor3 = PURPLE
-assistCircle.BackgroundTransparency = 0.91
-assistCircle.BorderSizePixel = 0
-assistCircle.Visible = false
-assistCircle.ZIndex = 1
-assistCircle.Parent = gui
-
-local assistRound = Instance.new("UICorner")
-assistRound.CornerRadius = UDim.new(1, 0)
-assistRound.Parent = assistCircle
-
-local assistStroke = Instance.new("UIStroke")
-assistStroke.Color = PURPLE
-assistStroke.Thickness = 2
-assistStroke.Transparency = 0.15
-assistStroke.Parent = assistCircle
-
-local function refreshAssistUI()
-    assistToggle.Text = assistEnabled
-        and "ABILITY AIM ASSIST: ON"
-        or "ABILITY AIM ASSIST: OFF"
-    assistToggle.BackgroundColor3 = assistEnabled and PURPLE or BUTTON
-    assistSize.Text = "RADIUS: " .. assistRadius .. "px"
-    assistCircle.Size = UDim2.fromOffset(
-        assistRadius * 2, assistRadius * 2
-    )
-    assistCircle.Visible = assistEnabled
-end
-
-connect(assistToggle.MouseButton1Click, function()
-    assistEnabled = not assistEnabled
-    assistTarget = nil
-    refreshAssistUI()
-end)
-
-connect(assistMinus.MouseButton1Click, function()
-    assistRadius = math.max(AIM_ASSIST_MIN, assistRadius - AIM_ASSIST_STEP)
-    refreshAssistUI()
-end)
-
-connect(assistPlus.MouseButton1Click, function()
-    assistRadius = math.min(AIM_ASSIST_MAX, assistRadius + AIM_ASSIST_STEP)
-    refreshAssistUI()
-end)
-
-refreshAssistUI()
 
 local status = Instance.new("TextLabel")
 status.Size = UDim2.fromOffset(350, 30)
@@ -792,121 +683,6 @@ local function getNPCs()
 
     return results
 end
-
--- ========================================
--- ABILITY AIM ASSIST TARGETING
--- ========================================
--- This is an API for abilities owned by this Roblox game.
--- It does NOT move the OS cursor or invoke abilities on its own.
--- Your ability script must call NoxGetAbilityAimPosition:Invoke(fallback).
--- It returns the chosen Vector3 aim position, plus the model or nil.
-
-abilityHook = Instance.new("BindableFunction")
-abilityHook.Name = "NoxGetAbilityAimPosition"
-abilityHook.Parent = playerScripts
-
-abilitySignal = Instance.new("BindableEvent")
-abilitySignal.Name = "NoxAbilityAimRequested"
-abilitySignal.Parent = playerScripts
-
-local function findAssistTarget()
-    if not assistEnabled then return nil end
-    local camera = workspace.CurrentCamera
-    if not camera then return nil end
-
-    local mouse = UIS:GetMouseLocation()
-    local nearest = nil
-    local minDistance = assistRadius
-
-    local function consider(model)
-        local root = getRoot(model)
-        if not root then return end
-        local screen, visible = camera:WorldToViewportPoint(
-            root.Position + Vector3.new(0, AIM_HEIGHT, 0)
-        )
-        if not visible or screen.Z <= 0 then return end
-        local distance = (Vector2.new(screen.X, screen.Y) - mouse).Magnitude
-        if distance <= minDistance then
-            nearest = model
-            minDistance = distance
-        end
-    end
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= me then
-            local ownTeam = playerTeam(me)
-            local theirs = playerTeam(p)
-            if not ownTeam or not theirs or ownTeam ~= theirs then
-                consider(p.Character)
-            end
-        end
-    end
-
-    -- Cache NPC enumeration; workspace:GetDescendants() is expensive.
-    local now = os.clock()
-    if now - npcAssistRefresh > 0.5 then
-        npcAssistCache = getNPCs()
-        npcAssistRefresh = now
-    end
-    for _, npc in ipairs(npcAssistCache) do
-        -- Exclude NPCs clearly identified as same-team.
-        local npcName, npcColor = npcTeamInfo(npc)
-        local ownTeam = playerTeam(me)
-        local ownColor = myTeamColor()
-        local sameTeam = ownTeam and (
-            npcName == ownTeam.Name:lower()
-            or (npcColor and ownColor and npcColor == ownColor)
-        )
-        if not sameTeam then
-            consider(npc)
-        end
-    end
-
-    return nearest
-end
-
-local function abilityAimPosition(normalPosition)
-    local target = findAssistTarget()
-    if target then
-        local root = getRoot(target)
-        if root then
-            return root.Position + Vector3.new(0, AIM_HEIGHT, 0), target
-        end
-    end
-    return normalPosition, nil
-end
-
-abilityHook.OnInvoke = abilityAimPosition
-
--- The event is optional: a game's ability controller can listen for
--- NoxAbilityAimRequested, or simply invoke the function when casting.
-local abilityKeys = {
-    [Enum.KeyCode.Z] = true,
-    [Enum.KeyCode.X] = true,
-    [Enum.KeyCode.C] = true,
-    [Enum.KeyCode.V] = true,
-    [Enum.KeyCode.F] = true,
-}
-
--- Uses its own render-step after the camera updates.
--- Does not override the no-flip camera or Shift Lock.
-RunService:BindToRenderStep(
-    "ProjectNoxAbilityCircle",
-    Enum.RenderPriority.Camera.Value + 3,
-    function()
-        if not running or not assistEnabled then return end
-        local mouse = UIS:GetMouseLocation()
-        assistCircle.Position = UDim2.fromOffset(mouse.X, mouse.Y)
-
-        if os.clock() - assistLastUpdate > 0.06 then
-            assistLastUpdate = os.clock()
-            assistTarget = findAssistTarget()
-            assistStroke.Color = assistTarget
-                and Color3.fromRGB(96, 235, 169)
-                or PURPLE
-        end
-    end
-)
 
 -- ========================================
 -- TARGET LIST
@@ -1330,14 +1106,6 @@ connect(UIS.InputBegan, function(input, processed)
     end
 
     if processed then return end
-
-    if assistEnabled and abilityKeys[input.KeyCode] and not menu.Visible then
-        local pos, model = abilityAimPosition(nil)
-        if model then
-            abilitySignal:Fire(input.KeyCode, pos, model)
-        end
-        -- Do NOT consume the key: the game's real ability controller runs it.
-    end
 
     if input.KeyCode == Enum.KeyCode.U then
         local opening = not menu.Visible
