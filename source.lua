@@ -6,7 +6,8 @@
     Left Shift Toggle target tracking
     E          Player ESP
     G          Next other-team player
-    Hold Tab   Temporary free mouse
+    Hold H     Temporary free mouse (configurable)
+    Keybinds   Change controls from the menu
 
     - NO upside-down camera flipping
     - NO sideways camera roll
@@ -126,6 +127,16 @@ local selectedKind = nil
 local tracking = false
 local espEnabled = false
 local holdingTab = false
+
+-- Remappable controls (reset when this LocalScript restarts).
+local binds = {
+    Menu = Enum.KeyCode.U,
+    ESP = Enum.KeyCode.E,
+    Cycle = Enum.KeyCode.G,
+    FreeMouse = Enum.KeyCode.H,
+    Tracking = Enum.KeyCode.LeftShift,
+}
+local rebinding = nil
 
 local currentSection = "Players"
 local savedCamera = nil
@@ -290,15 +301,106 @@ local espButton = createButton(
     UDim2.new(1, -18, 0, 34)
 )
 
+-- Keybind menu, separate from the target-list controls.
+local keybindButton = createButton(
+    menu, "KEYBINDS", UDim2.fromOffset(9, 379),
+    UDim2.fromOffset(100, 18)
+)
+keybindButton.TextSize = 10
+
 local footer = Instance.new("TextLabel")
-footer.Position = UDim2.fromOffset(9, 379)
-footer.Size = UDim2.new(1, -18, 0, 18)
+footer.Position = UDim2.fromOffset(115, 379)
+footer.Size = UDim2.new(1, -124, 0, 18)
 footer.BackgroundTransparency = 1
-footer.Text = "G: NEXT ENEMY | HOLD TAB: FREE MOUSE"
 footer.TextColor3 = Color3.fromRGB(175, 180, 205)
 footer.Font = Enum.Font.Gotham
 footer.TextSize = 10
+footer.TextXAlignment = Enum.TextXAlignment.Right
 footer.Parent = menu
+
+local keyPanel = Instance.new("Frame")
+keyPanel.Name = "KeybindPanel"
+keyPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+keyPanel.Position = UDim2.fromScale(0.5, 0.5)
+keyPanel.Size = UDim2.fromOffset(300, 237)
+keyPanel.BackgroundColor3 = DARK
+keyPanel.Visible = false
+keyPanel.ZIndex = 10
+keyPanel.Parent = gui
+addCorner(keyPanel, 10)
+
+local keyTitle = Instance.new("TextLabel")
+keyTitle.BackgroundTransparency = 1
+keyTitle.Position = UDim2.fromOffset(10, 6)
+keyTitle.Size = UDim2.fromOffset(280, 22)
+keyTitle.Text = "CONTROLS  |  Click to rebind"
+keyTitle.TextColor3 = Color3.new(1, 1, 1)
+keyTitle.Font = Enum.Font.GothamBold
+keyTitle.TextSize = 12
+keyTitle.ZIndex = 11
+keyTitle.Parent = keyPanel
+
+local bindButtons = {}
+local bindNames = {
+    {"Menu", "Toggle menu"},
+    {"ESP", "Player ESP"},
+    {"Cycle", "Cycle enemy"},
+    {"FreeMouse", "Hold free mouse"},
+    {"Tracking", "Tracking (Shift Lock stays native)"},
+}
+
+local function keyLabel(code)
+    return code.Name
+end
+
+local function refreshBindLabels()
+    for _, entry in ipairs(bindNames) do
+        local id, label = entry[1], entry[2]
+        local button = bindButtons[id]
+        if button then
+            button.Text = label .. ": " .. (
+                rebinding == id and "PRESS KEY..." or keyLabel(binds[id])
+            )
+            button.BackgroundColor3 =
+                rebinding == id and PURPLE or BUTTON
+        end
+    end
+    footer.Text = binds.Cycle.Name .. ": NEXT | HOLD "
+        .. binds.FreeMouse.Name .. ": MOUSE"
+    espButton.Text = espEnabled
+        and ("PLAYER ESP: ON [" .. binds.ESP.Name .. "]")
+        or ("PLAYER ESP: OFF [" .. binds.ESP.Name .. "]")
+end
+
+for i, entry in ipairs(bindNames) do
+    local id = entry[1]
+    local b = createButton(keyPanel, "", UDim2.fromOffset(10, 30 + (i - 1) * 34),
+        UDim2.fromOffset(280, 30))
+    b.ZIndex = 11
+    bindButtons[id] = b
+    connect(b.MouseButton1Click, function()
+        rebinding = id
+        refreshBindLabels()
+    end)
+end
+
+local hint = Instance.new("TextLabel")
+hint.Position = UDim2.fromOffset(10, 203)
+hint.Size = UDim2.fromOffset(280, 24)
+hint.BackgroundTransparency = 1
+hint.Text = "Esc cancels. Duplicate keys swap bindings."
+hint.TextColor3 = Color3.fromRGB(185, 190, 210)
+hint.Font = Enum.Font.Gotham
+hint.TextSize = 10
+hint.ZIndex = 11
+hint.Parent = keyPanel
+
+connect(keybindButton.MouseButton1Click, function()
+    keyPanel.Visible = not keyPanel.Visible
+    rebinding = nil
+    refreshBindLabels()
+end)
+refreshBindLabels()
 
 local status = Instance.new("TextLabel")
 status.Size = UDim2.fromOffset(350, 30)
@@ -986,8 +1088,8 @@ local function setESP(enabled)
     espEnabled = enabled
 
     espButton.Text = enabled
-        and "PLAYER ESP: ON [E]"
-        or "PLAYER ESP: OFF [E]"
+        and ("PLAYER ESP: ON [" .. binds.ESP.Name .. "]")
+        or ("PLAYER ESP: OFF [" .. binds.ESP.Name .. "]")
 
     espButton.BackgroundColor3 =
         enabled and PURPLE or BUTTON
@@ -1010,11 +1112,10 @@ connect(espButton.MouseButton1Click, function()
 end)
 
 -- ========================================
--- HOLD TAB: FREE MOUSE
+-- HOLD CONFIGURED KEY: FREE MOUSE
 -- ========================================
 
--- Tab is not consumed, so the game's own
--- Tab action can continue working.
+-- Defaults to H so Tab remains free for the game.
 
 local function beginTab()
     if holdingTab then return end
@@ -1068,7 +1169,7 @@ RunService:BindToRenderStep(
 )
 
 connect(UIS.InputEnded, function(input)
-    if input.KeyCode == Enum.KeyCode.Tab then
+    if input.KeyCode == binds.FreeMouse then
         endTab()
     end
 end)
@@ -1082,45 +1183,77 @@ connect(UIS.WindowFocusReleased, endTab)
 connect(UIS.InputBegan, function(input, processed)
     if UIS:GetFocusedTextBox() then return end
 
-    if input.KeyCode == Enum.KeyCode.Tab then
+    if rebinding then
+        -- Escape cancels a pending rebind; unknown keys are ignored.
+        if input.KeyCode == Enum.KeyCode.Escape then
+            rebinding = nil
+            refreshBindLabels()
+            return
+        end
+
+        if input.UserInputType == Enum.UserInputType.Keyboard
+            and input.KeyCode ~= Enum.KeyCode.Unknown then
+            local id = rebinding
+            local newKey = input.KeyCode
+            local previousKey = binds[id]
+
+            -- Swap duplicates instead of allowing conflicting actions.
+            for otherId, key in pairs(binds) do
+                if otherId ~= id and key == newKey then
+                    binds[otherId] = previousKey
+                    break
+                end
+            end
+
+            if id == "FreeMouse" then
+                endTab()
+            end
+            binds[id] = newKey
+            rebinding = nil
+            refreshBindLabels()
+        end
+        return
+    end
+
+    -- Respect input consumed by game UI; don't fight other key handlers.
+    if processed then return end
+
+    if input.KeyCode == binds.FreeMouse then
         beginTab()
         return
     end
 
-    -- Existing Shift Lock gets the Shift key.
-    -- Project Nox only changes tracking state.
-
-    if input.KeyCode == Enum.KeyCode.LeftShift then
+    -- Shift Lock stays under the game's controller.
+    -- Only Nox's tracking state is toggled here.
+    if input.KeyCode == binds.Tracking then
         if menu.Visible then return end
 
         if tracking then
             stopTracking()
-
         elseif selected and getRoot(targetModel()) then
             tracking = true
             lastYaw = nil
             updateStatus()
         end
-
         return
     end
 
-    if processed then return end
-
-    if input.KeyCode == Enum.KeyCode.U then
+    if input.KeyCode == binds.Menu then
         local opening = not menu.Visible
-
         if opening then
             stopTracking()
             refreshList()
+        else
+            keyPanel.Visible = false
+            rebinding = nil
+            refreshBindLabels()
         end
-
         menu.Visible = opening
 
-    elseif input.KeyCode == Enum.KeyCode.E then
+    elseif input.KeyCode == binds.ESP then
         setESP(not espEnabled)
 
-    elseif input.KeyCode == Enum.KeyCode.G then
+    elseif input.KeyCode == binds.Cycle then
         cycleEnemy()
     end
 end)
