@@ -3,7 +3,7 @@
     COMPLETE REPLACEMENT
 
     U          Open/close menu
-    Left Shift Toggle target tracking
+    Left Shift Toggle camera target tracking
     E          Player ESP
     G          Next other-team player
     Hold H     Temporary free mouse (configurable)
@@ -12,11 +12,13 @@
     - NO upside-down camera flipping
     - NO sideways camera roll
     - Existing game Shift Lock preserved
-    - Draggable UI
+    - Draggable main menu and keybind panel
+    - Bottom status bar removed
     - Half-speed target list scrolling
     - Hidden experimental NPC section
     - Player / NPC nearest-target selection
     - One target at a time
+    - Camera lock preserved; NO ability aim-assist circle
     - Player respawn support
     - Animated startup notification
 
@@ -402,71 +404,66 @@ connect(keybindButton.MouseButton1Click, function()
 end)
 refreshBindLabels()
 
+-- Bottom HUD bar removed. Keep a hidden status label so existing
+-- updateStatus() calls continue working without rewriting gameplay.
 local status = Instance.new("TextLabel")
-status.Size = UDim2.fromOffset(350, 30)
-status.AnchorPoint = Vector2.new(0.5, 1)
-status.Position = UDim2.new(0.5, 0, 1, -10)
-status.BackgroundColor3 = DARK
-status.TextColor3 = Color3.new(1, 1, 1)
-status.Font = Enum.Font.GothamMedium
-status.TextSize = 11
+status.Name = "InternalStatus"
+status.Visible = false
+status.Size = UDim2.fromOffset(0, 0)
 status.Parent = gui
 
-addCorner(status, 8)
-
 -- ========================================
--- DRAGGABLE MENU
+-- DRAGGABLE WINDOWS
 -- ========================================
+-- Move the main panel by its title or empty background, and
+-- move the keybind window by its title. Buttons retain their actions.
+local function makeDraggable(window, handles)
+    local dragging = false
+    local startPoint = nil
+    local startPosition = nil
+    local dragInput = nil
 
-local dragging = false
-local dragStart = nil
-local menuStart = nil
-local dragTouch = nil
-
-connect(title.InputBegan, function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-
-        dragging = true
-        dragStart = input.Position
-        menuStart = menu.Position
-
-        dragTouch =
-            input.UserInputType == Enum.UserInputType.Touch
-            and input or nil
-    end
-end)
-
-connect(UIS.InputChanged, function(input)
-    if not dragging then return end
-
-    local mouseMove =
-        input.UserInputType == Enum.UserInputType.MouseMovement
-
-    local touchMove = input == dragTouch
-
-    if not mouseMove and not touchMove then
-        return
+    window.Active = true
+    for _, handle in ipairs(handles) do
+        handle.Active = true
+        connect(handle.InputBegan, function(input)
+            local kind = input.UserInputType
+            if kind ~= Enum.UserInputType.MouseButton1
+                and kind ~= Enum.UserInputType.Touch then
+                return
+            end
+            dragging = true
+            startPoint = input.Position
+            startPosition = window.Position
+            dragInput = kind == Enum.UserInputType.Touch and input or nil
+        end)
     end
 
-    local delta = input.Position - dragStart
+    connect(UIS.InputChanged, function(input)
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+            and input ~= dragInput then return end
 
-    menu.Position = UDim2.new(
-        menuStart.X.Scale,
-        menuStart.X.Offset + delta.X,
-        menuStart.Y.Scale,
-        menuStart.Y.Offset + delta.Y
-    )
-end)
+        local delta = input.Position - startPoint
+        window.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
+        )
+    end)
 
-connect(UIS.InputEnded, function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input == dragTouch then
+    connect(UIS.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input == dragInput then
+            dragging = false
+            dragInput = nil
+        end
+    end)
+end
 
-        dragging = false
-        dragTouch = nil
-    end
-end)
+makeDraggable(menu, {title, menu})
+makeDraggable(keyPanel, {keyTitle})
 
 -- ========================================
 -- HALF-SPEED SCROLLING
@@ -1215,18 +1212,12 @@ connect(UIS.InputBegan, function(input, processed)
         return
     end
 
-    -- Respect input consumed by game UI; don't fight other key handlers.
-    if processed then return end
-
-    if input.KeyCode == binds.FreeMouse then
-        beginTab()
-        return
-    end
-
-    -- Shift Lock stays under the game's controller.
-    -- Only Nox's tracking state is toggled here.
+    -- Camera lock is the ORIGINAL Nox feature, not ability aim assist.
+    -- Roblox's native Shift Lock may mark Shift as game-processed.
+    -- Read this key BEFORE the processed guard or camera lock fails.
+    -- We do not change the cursor, camera mode, or native Shift Lock.
     if input.KeyCode == binds.Tracking then
-        if menu.Visible then return end
+        if menu.Visible or keyPanel.Visible then return end
 
         if tracking then
             stopTracking()
@@ -1237,6 +1228,18 @@ connect(UIS.InputBegan, function(input, processed)
         end
         return
     end
+
+    -- Free-mouse mode also needs to work when the game uses this key.
+    -- It changes only Nox's temporary mouse mode, not game bindings.
+    if input.KeyCode == binds.FreeMouse then
+        if not keyPanel.Visible then
+            beginTab()
+        end
+        return
+    end
+
+    -- All other actions respect input handled by the game or UI.
+    if processed then return end
 
     if input.KeyCode == binds.Menu then
         local opening = not menu.Visible
